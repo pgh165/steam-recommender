@@ -1,7 +1,7 @@
 import re
 import json
 from datetime import date
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.contrib.auth.decorators import login_required
@@ -56,15 +56,19 @@ def recommend(request):
     steam_user = request.user.steam_profile
     today = str(date.today())
     cache_key = f'recommendation_{steam_user.steam_id}_{today}'
+    chat_key  = f'chat_history_{steam_user.steam_id}'
 
+    # 새로고침: 캐시+채팅 모두 삭제 후 redirect (로딩 화면 표시를 위해)
     if request.GET.get('refresh'):
         request.session.pop(cache_key, None)
         request.session.pop(cache_key + '_cards', None)
+        request.session.pop(chat_key, None)
+        request.session.modified = True
+        return redirect('recommend')
 
+    # 캐시 있으면 바로 반환
     cached = request.session.get(cache_key)
-    chat_key = f'chat_history_{steam_user.steam_id}'
     if cached:
-        # 채팅 히스토리가 없으면 추천 결과로 초기화
         if not request.session.get(chat_key):
             request.session[chat_key] = [
                 {'role': 'assistant', 'content': cached},
@@ -74,6 +78,24 @@ def recommend(request):
         return render(request, 'recommender/recommend.html', {
             'result': cached, 'cached': True, 'recommended_games': cards,
         })
+
+    # 캐시 없음 → 로딩 화면 먼저 보여주고 JS가 /recommend/run/ 을 비동기 호출
+    return render(request, 'recommender/recommend.html', {'loading': True})
+
+
+@login_required(login_url='login')
+def recommend_run(request):
+    """JS에서 fetch()로 호출 — Ollama 추천 실행 후 JSON 반환."""
+    steam_user = request.user.steam_profile
+    today = str(date.today())
+    cache_key = f'recommendation_{steam_user.steam_id}_{today}'
+    chat_key  = f'chat_history_{steam_user.steam_id}'
+
+    # 혹시 이미 완료된 경우
+    cached = request.session.get(cache_key)
+    if cached:
+        cards = request.session.get(cache_key + '_cards', [])
+        return JsonResponse({'result': cached, 'cards': cards})
 
     owned_app_ids = set(
         steam_user.user_games.filter(source='steam')
@@ -96,20 +118,45 @@ def recommend(request):
         for ug in top_games
     ]
 
-    # 인기 게임(popular) 중 미보유 게임을 평점 순으로 최대 40개
-    deals = (
+    # 플레이타임 가중치로 상위 장르 추출
+    genre_weights = {}
+    for ug in top_games:
+        for g in (ug.game.genres or []):
+            genre_weights[g] = genre_weights.get(g, 0) + ug.playtime_minutes
+    top_genres = sorted(genre_weights, key=lambda g: -genre_weights[g])[:5]
+
+    # 상위 장르와 겹치는 게임 우선, 없으면 평점순 fallback
+    from django.db.models import Q
+    base_deals_qs = (
         Deal.objects
         .filter(category='popular', platform='steam')
         .exclude(game__steam_app_id__in=owned_app_ids)
         .select_related('game')
-        .order_by('-game__review_score')[:40]
     )
+    if top_genres:
+        genre_filter = Q()
+        for g in top_genres:
+            genre_filter |= Q(game__genres__contains=[g])
+        genre_matched = list(
+            base_deals_qs.filter(genre_filter).order_by('-game__review_score')[:20]
+        )
+    else:
+        genre_matched = []
+
+    if len(genre_matched) < 20:
+        extra_ids = {d.id for d in genre_matched}
+        fallback = list(
+            base_deals_qs.exclude(id__in=extra_ids).order_by('-game__review_score')[:20 - len(genre_matched)]
+        )
+        deals = genre_matched + fallback
+    else:
+        deals = genre_matched
     deals_data = [
         {
             'name': d.game.name,
-            'sale_price': d.sale_price,
+            'sale_price': float(d.sale_price) if d.sale_price else None,
             'discount_percent': d.discount_percent,
-            'genres': d.game.genres,
+            'genres': d.game.genres or [],
             'deal_url': d.deal_url,
             'review_score': d.game.review_score,
         }
@@ -119,24 +166,20 @@ def recommend(request):
     try:
         result = get_recommendation(user_games_data, deals_data)
     except Exception as e:
-        return render(request, 'recommender/recommend.html', {'error': f'추천 서버 오류: {e}'})
+        return JsonResponse({'error': f'추천 서버 오류: {e}'}, status=503)
 
     cards = _parse_recommended_games(result)
+    system_context = _build_system_context(user_games_data, deals_data)
+
     request.session[cache_key] = result
     request.session[cache_key + '_cards'] = cards
-
-    # 채팅 히스토리 초기화: 추천 결과를 첫 번째 assistant 메시지로 설정
-    chat_key = f'chat_history_{steam_user.steam_id}'
-    system_context = _build_system_context(user_games_data, deals_data)
     request.session[chat_key] = [
         {'role': 'user', 'content': system_context},
         {'role': 'assistant', 'content': result},
     ]
     request.session.modified = True
 
-    return render(request, 'recommender/recommend.html', {
-        'result': result, 'cached': False, 'recommended_games': cards,
-    })
+    return JsonResponse({'result': result, 'cards': cards})
 
 
 @require_POST

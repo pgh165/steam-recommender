@@ -27,11 +27,14 @@ def _save_deal(game, platform, category, original_price, sale_price, discount_pe
 # ── Steam ─────────────────────────────────────────────────────────────────────
 
 def fetch_steam_deals():
-    from library.steam_api import get_steam_deals, get_top100_app_ids
+    from library.steam_api import get_steam_deals, get_store_top_sellers
+
+    # popular 딜 초기화 — 매번 최신 판매 순위로 교체
+    Deal.objects.filter(category='popular', platform='steam').delete()
 
     count = 0
 
-    # 1) specials / top_sellers (featuredcategories)
+    # 1) featuredcategories: specials + top_sellers (할인 특가)
     items = get_steam_deals()
     for item in items:
         app_id = item.get('id')
@@ -57,38 +60,27 @@ def fetch_steam_deals():
         if update_fields:
             game.save(update_fields=update_fields)
 
-        # 한국어 이름 수집 (아직 없으면)
         if not game.korean_name:
             _fetch_korean_name(game)
 
         original = (item.get('original_price') or 0) / 100
-        final = (item.get('final_price') or 0) / 100
+        final    = (item.get('final_price') or 0) / 100
         discount = item.get('discount_percent', 0)
-        category = item.get('_category', 'specials')
 
-        _save_deal(game, 'steam', category, original, final, discount,
+        _save_deal(game, 'steam', item.get('_category', 'specials'),
+                   original, final, discount,
                    f'https://store.steampowered.com/app/{app_id}/')
         count += 1
         time.sleep(0.3)
 
-    # 2) SteamSpy top100 인기 게임 (popular 카테고리) — 판매량 + 평점 기록
-    try:
-        top100 = get_top100_app_ids()
-    except Exception:
-        top100 = []
-
-    for app_id, name, positive, negative in top100:
-        total_reviews = positive + negative
-        if positive < 500:
-            continue
-        review_score = positive / total_reviews if total_reviews > 0 else 0.0
-        if review_score < 0.8:
-            continue
-
+    # 2) Steam 스토어 현재 Top Sellers 50개 → popular 카테고리
+    top_sellers = get_store_top_sellers(count=50)
+    for app_id, name in top_sellers:
         try:
             detail_resp = requests.get(
                 'https://store.steampowered.com/api/appdetails',
-                params={'appids': app_id, 'cc': 'kr', 'filters': 'price_overview,basic,content_descriptors'},
+                params={'appids': app_id, 'cc': 'kr',
+                        'filters': 'price_overview,basic,content_descriptors,genres'},
                 timeout=8,
             )
             detail_data = detail_resp.json().get(str(app_id), {})
@@ -96,47 +88,61 @@ def fetch_steam_deals():
                 time.sleep(0.2)
                 continue
             app_data = detail_data.get('data', {})
-            if app_data.get('type') not in ('game', 'dlc', None, ''):
+            if app_data.get('type') not in ('game', None, ''):
                 time.sleep(0.2)
                 continue
-            required_age = int(app_data.get('required_age') or 0)
+            # 성적 콘텐츠(3) · 성인전용(4)만 제외 — required_age는 한국 기준 과도하게 높아서 무시
             descriptor_ids = app_data.get('content_descriptors', {}).get('ids', [])
-            if required_age >= 18 or set(descriptor_ids) & {3, 4}:
+            if set(descriptor_ids) & {3, 4}:
                 time.sleep(0.2)
                 continue
+
             if app_data.get('is_free'):
                 time.sleep(0.2)
                 continue
-            name = app_data.get('name', name)
+            name      = app_data.get('name', name)
             thumbnail = app_data.get('header_image') or _steam_thumbnail(app_id)
-            price_ov = app_data.get('price_overview')
+            price_ov  = app_data.get('price_overview')
             if not price_ov:
                 time.sleep(0.2)
                 continue
             original = (price_ov.get('initial') or 0) / 100
-            final = (price_ov.get('final') or 0) / 100
+            final    = (price_ov.get('final') or 0) / 100
             discount = price_ov.get('discount_percent', 0)
+            genres   = [g['description'] for g in app_data.get('genres', [])]
+
+            # 리뷰 필터: 매우 긍정적 이상 OR 긍정적+1000개 이상
+            review_score, review_desc, review_total = _fetch_review_score(app_id)
+            if review_desc and not _is_good_enough(review_desc, review_total):
+                time.sleep(0.2)
+                continue
         except Exception:
             time.sleep(0.2)
             continue
 
         game, created = Game.objects.get_or_create(
             steam_app_id=app_id,
-            defaults={'name': name, 'thumbnail_url': thumbnail},
+            defaults={'name': name, 'thumbnail_url': thumbnail, 'genres': genres},
         )
         update_fields = []
-        if not created and thumbnail and not game.thumbnail_url:
-            game.thumbnail_url = thumbnail
-            update_fields.append('thumbnail_url')
+        if not created:
+            if thumbnail and not game.thumbnail_url:
+                game.thumbnail_url = thumbnail
+                update_fields.append('thumbnail_url')
+            if name and game.name != name:
+                game.name = name
+                update_fields.append('name')
+            if genres and game.genres != genres:
+                game.genres = genres
+                update_fields.append('genres')
         if not game.normalized_name:
             update_fields.append('normalized_name')
-        if game.review_score != review_score:
+        if review_score and game.review_score != review_score:
             game.review_score = review_score
             update_fields.append('review_score')
         if update_fields:
             game.save(update_fields=update_fields)
 
-        # 한국어 이름 수집 (아직 없으면)
         if not game.korean_name:
             _fetch_korean_name(game)
 
@@ -266,6 +272,52 @@ def fetch_directgames_deals():
 
 # ── Steam 헬퍼 ───────────────────────────────────────────────────────────────
 
+def _fetch_review_score(app_id: int):
+    """Steam appreviews API로 (score, desc, total) 반환. 실패 시 (0.0, '', 0)"""
+    try:
+        r = requests.get(
+            f'https://store.steampowered.com/appreviews/{app_id}',
+            params={'json': 1, 'language': 'all', 'review_type': 'all',
+                    'purchase_type': 'all', 'num_per_page': 0},
+            timeout=8,
+        )
+        summary = r.json().get('query_summary', {})
+        total = summary.get('total_reviews', 0)
+        pos   = summary.get('total_positive', 0)
+        desc  = summary.get('review_score_desc', '')
+        score = pos / total if total >= 10 else 0.0
+        return score, desc, total
+    except Exception:
+        return 0.0, '', 0
+
+
+def _is_good_enough(desc: str, total: int) -> bool:
+    """
+    포함 기준:
+    - 매우 긍정적 / 압도적 긍정적: 리뷰 수 무관
+    - 긍정적(Positive): 리뷰 1,000개 이상
+    """
+    if desc in ('Overwhelmingly Positive', 'Very Positive'):
+        return True
+    if desc == 'Mostly Positive' and total >= 1000:
+        return True
+    return False
+
+
+def _is_too_old(release_date_str: str, max_years: int = 3) -> bool:
+    """출시일 문자열을 파싱해 max_years년 이상 된 게임이면 True."""
+    from datetime import datetime, timezone as dt_timezone
+    for fmt in ('%d %b, %Y', '%b %d, %Y', '%Y-%m-%d', '%d %B, %Y'):
+        try:
+            dt = datetime.strptime(release_date_str.strip(), fmt)
+            cutoff = datetime.now(dt_timezone.utc).replace(tzinfo=None)
+            age_years = (cutoff - dt).days / 365
+            return age_years > max_years
+        except ValueError:
+            continue
+    return False  # 파싱 실패 시 제외하지 않음
+
+
 def _is_adult_content(app_id):
     try:
         resp = requests.get(
@@ -277,9 +329,8 @@ def _is_adult_content(app_id):
         if not data.get('success'):
             return False
         app_data = data.get('data', {})
-        required_age = int(app_data.get('required_age') or 0)
         descriptor_ids = app_data.get('content_descriptors', {}).get('ids', [])
-        return required_age >= 18 or bool(set(descriptor_ids) & {3, 4})
+        return bool(set(descriptor_ids) & {3, 4})
     except Exception:
         return False
 

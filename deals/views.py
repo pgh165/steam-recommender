@@ -32,11 +32,10 @@ def _run_fetch_in_background():
 
 @login_required(login_url='login')
 def deals_list(request):
-    platform = request.GET.get('platform', '')
-    genre    = request.GET.get('genre', '')
+    genre      = request.GET.get('genre', '')
     steam_user = request.user.steam_profile
 
-    # 새로고침 요청: 마지막 수집이 FETCH_COOLDOWN_MINUTES 이상 지났으면 백그라운드 수집
+    # 새로고침 요청
     if request.GET.get('refresh'):
         last = Deal.objects.order_by('-fetched_at').values_list('fetched_at', flat=True).first()
         cooldown_passed = (
@@ -46,12 +45,7 @@ def deals_list(request):
         if cooldown_passed:
             t = threading.Thread(target=_run_fetch_in_background, daemon=True)
             t.start()
-        # 새로고침 파라미터 제거 후 리다이렉트 (새로고침 중복 방지)
-        params = []
-        if platform:
-            params.append(f'platform={platform}')
-        if genre:
-            params.append(f'genre={genre}')
+        params = [f'genre={genre}'] if genre else []
         params.append('fetching=1')
         return redirect(f"{request.path}?{'&'.join(params)}")
 
@@ -72,42 +66,37 @@ def deals_list(request):
         .exclude(game__name__in=owned_names)
         .select_related('game')
     )
-    if platform:
-        base_qs = base_qs.filter(platform=platform)
 
-    popular_all = base_qs.filter(category__in=('popular', 'top_sellers'))
-    all_genres  = _collect_genres(popular_all)
+    popular_qs = base_qs.filter(category__in=('popular', 'top_sellers'), platform='steam')
+    all_genres = _collect_genres(popular_qs)
 
-    popular_filtered = popular_all.filter(game__genres__contains=[genre]) if genre else popular_all
-    specials_qs = base_qs.filter(category='specials')
     if genre:
-        specials_qs = specials_qs.filter(game__genres__contains=[genre])
+        popular_qs = popular_qs.filter(game__genres__contains=[genre])
 
-    popular_deals  = list(popular_filtered.order_by('-game__review_score'))
-    specials_deals = list(specials_qs.order_by('-discount_percent'))
+    popular_deals = list(popular_qs.order_by('-game__review_score'))
 
-    def fix_thumbnails(items):
-        for d in items:
-            if d.game.steam_app_id and 'media.steampowered.com' in (d.game.thumbnail_url or ''):
-                d.game.thumbnail_url = (
-                    f'https://cdn.akamai.steamstatic.com/steam/apps/{d.game.steam_app_id}/header.jpg'
-                )
-        return items
+    for d in popular_deals:
+        if d.game.steam_app_id and 'media.steampowered.com' in (d.game.thumbnail_url or ''):
+            d.game.thumbnail_url = (
+                f'https://cdn.akamai.steamstatic.com/steam/apps/{d.game.steam_app_id}/header.jpg'
+            )
 
-    sections = []
-    if popular_deals:
-        sections.append(('인기 게임', fix_thumbnails(popular_deals)))
-    if specials_deals:
-        sections.append(('할인 특가', fix_thumbnails(specials_deals)))
+    # game IDs that have a directgames deal (for 가격비교 badge)
+    popular_game_ids = [d.game_id for d in popular_deals]
+    dg_game_ids = set(
+        Deal.objects.filter(game_id__in=popular_game_ids, platform='directgames')
+        .values_list('game_id', flat=True)
+    )
+    for d in popular_deals:
+        d.game.has_dg_deal = d.game_id in dg_game_ids
 
     last_updated = Deal.objects.order_by('-fetched_at').values_list('fetched_at', flat=True).first()
     return render(request, 'deals/deals.html', {
-        'sections':     sections,
-        'platform':     platform,
-        'genre':        genre,
-        'all_genres':   all_genres,
-        'last_updated': last_updated,
-        'fetching':     fetching,
+        'popular_deals': popular_deals,
+        'genre':         genre,
+        'all_genres':    all_genres,
+        'last_updated':  last_updated,
+        'fetching':      fetching,
         'cooldown_minutes': FETCH_COOLDOWN_MINUTES,
     })
 

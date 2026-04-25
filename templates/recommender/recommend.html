@@ -304,7 +304,9 @@
 {% block content %}
 <div class="recommend-header">
   <h1>AI 게임 추천</h1>
-  <a href="{% url 'recommend' %}?refresh=1" class="btn btn-secondary">다시 추천받기</a>
+  {% if result %}
+  <a href="{% url 'recommend' %}?refresh=1" class="btn btn-secondary" id="refreshBtn">다시 추천받기</a>
+  {% endif %}
 </div>
 
 {% if cached %}
@@ -316,6 +318,7 @@
 
 {% elif result %}
 
+  <div id="resultArea">
   {% if recommended_games %}
   <!-- 추천 게임 카드 -->
   <div class="rec-cards">
@@ -357,17 +360,11 @@
         {% endif %}
 
         <div class="rec-actions">
-          <a class="btn-steam" href="{{ g.steam_url }}" target="_blank" rel="noopener">
-            Steam 구매
-          </a>
+          <a class="btn-steam" href="{{ g.steam_url }}" target="_blank" rel="noopener">Steam 구매</a>
           {% if g.has_directgames %}
-          <a class="btn-dg" href="{{ g.detail_url }}">
-            💰 가격비교
-          </a>
+          <a class="btn-dg" href="{{ g.detail_url }}">💰 가격비교</a>
           {% endif %}
-          <a class="btn-yt" href="{{ g.youtube_url }}" target="_blank" rel="noopener">
-            ▶ 트레일러
-          </a>
+          <a class="btn-yt" href="{{ g.youtube_url }}" target="_blank" rel="noopener">▶ 트레일러</a>
         </div>
       </div>
     </div>
@@ -398,16 +395,47 @@
     </div>
     <p class="chat-hint">AI가 추천 맥락을 기억하고 있어 추가 질문이 가능합니다.</p>
   </div>
+  </div>{# /resultArea #}
 
 {% else %}
-  <div class="loading">
-    <div class="spinner"></div>
-    <p>AI가 취향을 분석 중입니다...</p>
+  <!-- 로딩 화면: JS가 /recommend/run/ 호출 후 페이지 교체 -->
+  <div id="loadingArea">
+    <div class="loading">
+      <div class="spinner"></div>
+      <p id="loadingMsg">AI가 취향을 분석 중입니다...</p>
+    </div>
   </div>
 {% endif %}
 {% endblock %}
 
 {% block extra_js %}
+{% if loading %}
+<script>
+const RUN_URL  = '{% url "recommend_run" %}';
+const PAGE_URL = '{% url "recommend" %}';
+
+async function runRecommend() {
+  const msgEl = document.getElementById('loadingMsg');
+  try {
+    const res = await fetch(RUN_URL, { credentials: 'same-origin' });
+    const data = await res.json();
+    if (data.error) {
+      msgEl.textContent = '오류: ' + data.error;
+      msgEl.style.color = '#ff6b6b';
+      return;
+    }
+    // 완료되면 결과 페이지로 이동
+    window.location.href = PAGE_URL;
+  } catch (e) {
+    msgEl.textContent = '서버 연결 실패. 페이지를 새로고침 해주세요.';
+    msgEl.style.color = '#ff6b6b';
+  }
+}
+
+runRecommend();
+</script>
+{% endif %}
+
 {% if result %}
 <script>
 const CHAT_URL = '{% url "recommend_chat" %}';

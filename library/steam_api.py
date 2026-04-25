@@ -42,21 +42,24 @@ def get_steam_deals():
     return items
 
 
-def get_top100_app_ids():
-    """SteamSpy top100in2weeks + top100forever 합산 → [(appid, name, positive, negative), ...]"""
+def get_store_top_sellers(count=100):
+    """Steam 스토어 topsellers + toprated 합산 → [(appid, name), ...] (중복 제거)"""
+    import re
     seen = {}
-    for request_type in ('top100in2weeks', 'top100forever'):
+    for filt in ('topsellers', 'toprated'):
         try:
             resp = requests.get(
-                'https://steamspy.com/api.php',
-                params={'request': request_type},
+                'https://store.steampowered.com/search/results/',
+                params={'filter': filt, 'cc': 'KR', 'count': count, 'json': '1'},
                 timeout=15,
             )
             resp.raise_for_status()
-            for v in resp.json().values():
-                app_id = int(v['appid'])
-                if app_id not in seen:
-                    seen[app_id] = (v['name'], int(v.get('positive') or 0), int(v.get('negative') or 0))
+            for it in resp.json().get('items', []):
+                m = re.search(r'/apps/(\d+)/', it.get('logo', ''))
+                if m:
+                    app_id = int(m.group(1))
+                    if app_id not in seen:
+                        seen[app_id] = it.get('name', '')
         except Exception:
             pass
-    return [(app_id, name, pos, neg) for app_id, (name, pos, neg) in seen.items()]
+    return list(seen.items())
