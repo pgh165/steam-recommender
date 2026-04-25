@@ -1,0 +1,186 @@
+{% extends 'base.html' %}
+
+{% block title %}가격 비교 — Steam 추천{% endblock %}
+
+{% block extra_css %}
+<style>
+  .page-header {
+    margin-bottom: 1.5rem;
+  }
+  .page-header h1 { font-size: 1.4rem; color: #e8f0f7; }
+  .page-header p  { font-size: 0.85rem; color: #8f98a0; margin-top: 0.3rem; }
+
+  .compare-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1rem;
+  }
+
+  .compare-card {
+    background: #16202d;
+    border: 1px solid #2a475e;
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .compare-card.has-cheaper { border-color: #4c9f47; }
+
+  .card-thumb {
+    position: relative;
+    aspect-ratio: 460/215;
+    overflow: hidden;
+  }
+  .card-thumb img {
+    width: 100%; height: 100%;
+    object-fit: cover; display: block;
+  }
+  .cheaper-badge {
+    position: absolute;
+    top: 8px; left: 8px;
+    background: #4c9f47;
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.2rem 0.55rem;
+    border-radius: 3px;
+  }
+
+  .card-body { padding: 0.9rem; flex: 1; }
+  .card-title {
+    font-size: 0.9rem;
+    color: #e8f0f7;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 0.75rem;
+  }
+
+  .platform-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid #1b2838;
+    font-size: 0.83rem;
+  }
+  .platform-row:last-child { border-bottom: none; }
+
+  .platform-icon {
+    width: 16px; height: 16px;
+    object-fit: contain; flex-shrink: 0;
+  }
+  .platform-name {
+    flex: 1;
+    color: #8f98a0;
+  }
+  .price-info { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
+  .disc { background: #4c9f47; color: #fff; font-size: 0.72rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 3px; }
+  .orig { color: #5a7a8a; font-size: 0.75rem; text-decoration: line-through; }
+  .sale { color: #aed6f5; font-weight: 600; }
+  .free-tag { background: #1a5c8a; color: #66c0f4; font-size: 0.72rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 3px; }
+  .best-mark { color: #4c9f47; font-size: 0.7rem; font-weight: 700; }
+  .no-data { color: #4a6072; font-size: 0.8rem; }
+
+  .card-link {
+    display: block;
+    text-align: center;
+    padding: 0.5rem;
+    background: #0f1923;
+    font-size: 0.8rem;
+    color: #4c9be8;
+    text-decoration: none;
+    border-top: 1px solid #2a475e;
+    transition: background 0.15s;
+  }
+  .card-link:hover { background: #1a2d3d; }
+
+  .empty { color: #8f98a0; text-align: center; padding: 4rem 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>플랫폼 가격 비교</h1>
+  <p>Steam 인기 게임 기준으로 GOG · Epic · 다이렉트게임즈의 가격을 비교합니다. 초록 테두리 = 타 플랫폼이 더 저렴.</p>
+</div>
+
+{% if comparisons %}
+<div class="compare-grid">
+  {% for item in comparisons %}
+  <div class="compare-card {% if item.has_cheaper %}has-cheaper{% endif %}">
+    <div class="card-thumb">
+      <img src="{{ item.game.thumbnail_url }}"
+           alt="{{ item.game.name }}"
+           onerror="this.src='https://via.placeholder.com/460x215/1b2838/66c0f4?text=No+Image'">
+      {% if item.has_cheaper %}
+        <span class="cheaper-badge">타 플랫폼 더 저렴</span>
+      {% endif %}
+    </div>
+
+    <div class="card-body">
+      <div class="card-title" title="{{ item.game.name }}">{{ item.game.name }}</div>
+
+      {# Steam 행 #}
+      {% with d=item.steam %}
+      <div class="platform-row">
+        <img class="platform-icon" src="https://store.steampowered.com/favicon.ico" alt="Steam">
+        <span class="platform-name">Steam</span>
+        <div class="price-info">
+          {% if d %}
+            {% if d.discount_percent > 0 %}
+              <span class="disc">-{{ d.discount_percent }}%</span>
+              {% if d.original_price %}<span class="orig">₩{{ d.original_price|floatformat:0 }}</span>{% endif %}
+              <span class="sale">₩{{ d.sale_price|floatformat:0 }}</span>
+            {% elif d.sale_price %}
+              <span class="sale">₩{{ d.sale_price|floatformat:0 }}</span>
+            {% else %}
+              <span class="no-data">가격 미정</span>
+            {% endif %}
+            {% if d == item.best_deal %}<span class="best-mark">최저가</span>{% endif %}
+          {% else %}
+            <span class="no-data">정보 없음</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endwith %}
+
+      {# 타 플랫폼 행 #}
+      {% for d in item.others %}
+      <div class="platform-row">
+        {% if d.platform == 'directgames' %}
+          <img class="platform-icon" src="https://directg.net/favicon.ico" alt="다이렉트게임즈">
+          <span class="platform-name">다이렉트게임즈</span>
+        {% endif %}
+        <div class="price-info">
+          {% if d.category == 'free' and d.discount_percent == 100 %}
+            <span class="free-tag">무료</span>
+            {% if d.original_price %}<span class="orig">₩{{ d.original_price|floatformat:0 }}</span>{% endif %}
+          {% elif d.discount_percent > 0 %}
+            <span class="disc">-{{ d.discount_percent }}%</span>
+            {% if d.original_price %}<span class="orig">₩{{ d.original_price|floatformat:0 }}</span>{% endif %}
+            {% if d.sale_price %}<span class="sale">₩{{ d.sale_price|floatformat:0 }}</span>{% endif %}
+          {% elif d.sale_price %}
+            <span class="sale">₩{{ d.sale_price|floatformat:0 }}</span>
+          {% else %}
+            <span class="no-data">가격 미정</span>
+          {% endif %}
+          {% if d == item.best_deal %}<span class="best-mark">최저가</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <a class="card-link" href="{{ item.best_deal.deal_url }}" target="_blank" rel="noopener">
+      최저가로 이동 →
+    </a>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty">
+  <p>비교 데이터가 없습니다.</p>
+  <p style="margin-top:0.5rem;font-size:0.85rem;"><code>python manage.py fetch_deals</code>를 실행한 뒤 다시 확인해주세요.</p>
+</div>
+{% endif %}
+{% endblock %}

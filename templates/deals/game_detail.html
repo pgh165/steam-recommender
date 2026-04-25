@@ -1,0 +1,241 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ game.name }} — Steam 추천{% endblock %}
+
+{% block extra_css %}
+<style>
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: #8f98a0;
+    text-decoration: none;
+    font-size: 0.85rem;
+    margin-bottom: 1.5rem;
+    transition: color 0.2s;
+  }
+  .back-link:hover { color: #66c0f4; }
+
+  .game-hero {
+    display: flex;
+    gap: 2rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+  }
+  .game-hero img {
+    width: 320px;
+    max-width: 100%;
+    border-radius: 8px;
+    border: 1px solid #2a475e;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+  .game-info { flex: 1; min-width: 220px; }
+  .game-info h1 {
+    font-size: 1.6rem;
+    color: #e8f0f7;
+    margin-bottom: 0.5rem;
+  }
+  .genres {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+  }
+  .genre-tag {
+    background: #2a475e;
+    color: #8f98a0;
+    font-size: 0.75rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 12px;
+  }
+  .review-score {
+    font-size: 0.9rem;
+    color: #66c0f4;
+    margin-bottom: 1.2rem;
+  }
+
+  /* 가격 비교 카드 */
+  .price-section h2 {
+    font-size: 1rem;
+    color: #8f98a0;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid #2a475e;
+  }
+  .price-cards {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+  }
+  .price-card {
+    flex: 1;
+    min-width: 200px;
+    background: #16202d;
+    border: 1px solid #2a475e;
+    border-radius: 8px;
+    padding: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .price-card.best-deal { border-color: #4c9f47; }
+  .price-card .platform-name {
+    font-size: 0.8rem;
+    color: #8f98a0;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .price-card .platform-name img { width: 16px; height: 16px; }
+  .price-card .price-main {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #e8f0f7;
+  }
+  .price-card .price-original {
+    color: #8f98a0;
+    font-size: 0.8rem;
+    text-decoration: line-through;
+  }
+  .price-card .discount-pct {
+    background: #4c9f47;
+    color: #fff;
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    display: inline-block;
+    width: fit-content;
+  }
+  .best-label {
+    font-size: 0.72rem;
+    color: #4c9f47;
+    font-weight: 700;
+  }
+  .price-card .buy-btn {
+    display: inline-block;
+    margin-top: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-align: center;
+    transition: background 0.2s;
+  }
+  .buy-btn.steam { background: #4c9be8; color: #fff; }
+  .buy-btn.steam:hover { background: #66c0f4; }
+  .buy-btn.dg { background: #2a475e; color: #c6d4df; }
+  .buy-btn.dg:hover { background: #3d6680; }
+
+  /* YouTube 버튼 */
+  .action-buttons { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.5rem; }
+  .yt-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 1.2rem;
+    background: #c4302b;
+    color: #fff;
+    border-radius: 4px;
+    text-decoration: none;
+    font-size: 0.88rem;
+    font-weight: 600;
+    transition: background 0.2s;
+  }
+  .yt-btn:hover { background: #e03030; }
+</style>
+{% endblock %}
+
+{% block content %}
+<a class="back-link" href="{% url 'deals' %}">← 인기 게임 목록</a>
+
+<div class="game-hero">
+  <img src="https://cdn.akamai.steamstatic.com/steam/apps/{{ game.steam_app_id }}/header.jpg"
+       alt="{{ game.name }}"
+       onerror="this.src='https://via.placeholder.com/460x215/1b2838/66c0f4?text=No+Image'">
+  <div class="game-info">
+    <h1>{{ game.name }}</h1>
+    {% if game.korean_name %}
+      <p style="color:#8f98a0;font-size:0.9rem;margin-bottom:0.6rem;">{{ game.korean_name }}</p>
+    {% endif %}
+
+    {% if game.genres %}
+    <div class="genres">
+      {% for g in game.genres %}
+        <span class="genre-tag">{{ g }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if game.review_score %}
+    <div class="review-score">⭐ 유저 평점 {% widthratio game.review_score 1 100 %}%</div>
+    {% endif %}
+
+    <div class="action-buttons">
+      <a class="yt-btn"
+         href="https://www.youtube.com/results?search_query={{ youtube_query }}"
+         target="_blank" rel="noopener">
+        ▶ YouTube 트레일러
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- 가격 비교 -->
+<div class="price-section">
+  <h2>💰 플랫폼 가격 비교</h2>
+  <div class="price-cards">
+
+    {% if steam_deal %}
+    <div class="price-card {% if steam_is_best %}best-deal{% endif %}">
+      <div class="platform-name">
+        <img src="https://store.steampowered.com/favicon.ico" alt=""> Steam
+        {% if steam_is_best %}<span class="best-label">최저가</span>{% endif %}
+      </div>
+      {% if steam_deal.discount_percent > 0 %}
+        <span class="discount-pct">-{{ steam_deal.discount_percent }}%</span>
+        {% if steam_deal.original_price %}
+          <span class="price-original">₩{{ steam_deal.original_price|floatformat:0 }}</span>
+        {% endif %}
+      {% endif %}
+      <span class="price-main">
+        {% if steam_deal.sale_price %}₩{{ steam_deal.sale_price|floatformat:0 }}
+        {% elif steam_deal.original_price %}₩{{ steam_deal.original_price|floatformat:0 }}
+        {% else %}가격 미정{% endif %}
+      </span>
+      <a class="buy-btn steam" href="{{ steam_deal.deal_url }}" target="_blank" rel="noopener">Steam에서 구매</a>
+    </div>
+    {% endif %}
+
+    {% if dg_deal %}
+    <div class="price-card {% if dg_is_best %}best-deal{% endif %}">
+      <div class="platform-name">
+        🎮 다이렉트게임즈
+        {% if dg_is_best %}<span class="best-label">최저가</span>{% endif %}
+      </div>
+      {% if dg_deal.discount_percent > 0 %}
+        <span class="discount-pct">-{{ dg_deal.discount_percent }}%</span>
+        {% if dg_deal.original_price %}
+          <span class="price-original">₩{{ dg_deal.original_price|floatformat:0 }}</span>
+        {% endif %}
+      {% endif %}
+      <span class="price-main">
+        {% if dg_deal.sale_price %}₩{{ dg_deal.sale_price|floatformat:0 }}
+        {% elif dg_deal.original_price %}₩{{ dg_deal.original_price|floatformat:0 }}
+        {% else %}가격 미정{% endif %}
+      </span>
+      <a class="buy-btn dg" href="{{ dg_deal.deal_url }}" target="_blank" rel="noopener">다이렉트게임즈에서 구매</a>
+    </div>
+    {% endif %}
+
+    {% if not steam_deal and not dg_deal %}
+    <p style="color:#8f98a0;">현재 등록된 가격 정보가 없습니다.</p>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

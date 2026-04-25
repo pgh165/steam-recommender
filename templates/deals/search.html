@@ -1,0 +1,250 @@
+{% extends 'base.html' %}
+
+{% block title %}검색: {{ query }} — Steam 추천{% endblock %}
+{% block search_query %}{{ query }}{% endblock %}
+
+{% block extra_css %}
+<style>
+  .search-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+  }
+  .search-header h1 {
+    font-size: 1.3rem;
+    color: #e8f0f7;
+  }
+  .search-meta {
+    font-size: 0.85rem;
+    color: #8f98a0;
+  }
+
+  /* 검색창 (페이지 내) */
+  .search-bar {
+    display: flex;
+    gap: 0;
+    max-width: 520px;
+    margin-bottom: 1.5rem;
+  }
+  .search-bar input {
+    flex: 1;
+    background: #16202d;
+    border: 1px solid #2a475e;
+    border-right: none;
+    border-radius: 4px 0 0 4px;
+    color: #c6d4df;
+    font-size: 0.95rem;
+    padding: 0.55rem 0.9rem;
+    outline: none;
+  }
+  .search-bar input:focus { border-color: #66c0f4; }
+  .search-bar button {
+    background: #4c9be8;
+    border: none;
+    color: #fff;
+    font-size: 0.9rem;
+    padding: 0 1.1rem;
+    border-radius: 0 4px 4px 0;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .search-bar button:hover { background: #66c0f4; }
+
+  /* 결과 그리드 */
+  .results-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+  }
+
+  .result-card {
+    background: #16202d;
+    border: 1px solid #2a475e;
+    border-radius: 6px;
+    overflow: hidden;
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    transition: border-color 0.2s;
+  }
+  .result-card:hover { border-color: #66c0f4; }
+
+  .thumb-wrap {
+    position: relative;
+    aspect-ratio: 460/215;
+    overflow: hidden;
+    background: #0e1620;
+  }
+  .thumb-wrap img {
+    width: 100%; height: 100%;
+    object-fit: cover; display: block;
+  }
+  .platform-badges {
+    position: absolute;
+    bottom: 6px; right: 6px;
+    display: flex;
+    gap: 4px;
+  }
+  .platform-badge {
+    background: rgba(0,0,0,0.72);
+    border-radius: 4px;
+    padding: 3px 5px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #e8f0f7;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .platform-badge img { width: 12px; height: 12px; object-fit: contain; }
+
+  .card-info { padding: 0.65rem; }
+  .card-name {
+    font-size: 0.83rem;
+    color: #c6d4df;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 0.1rem;
+  }
+  .card-korean {
+    font-size: 0.73rem;
+    color: #8f98a0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 0.3rem;
+  }
+  .card-genres {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-bottom: 0.4rem;
+  }
+  .card-genre {
+    font-size: 0.68rem;
+    background: #1b2838;
+    color: #8f98a0;
+    padding: 0.1rem 0.4rem;
+    border-radius: 8px;
+    border: 1px solid #2a475e;
+  }
+
+  .price-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+  .discount-badge {
+    background: #4c9f47; color: #fff;
+    font-size: 0.78rem; font-weight: 700;
+    padding: 0.1rem 0.4rem; border-radius: 3px;
+  }
+  .original-price { color: #8f98a0; font-size: 0.75rem; text-decoration: line-through; }
+  .sale-price { color: #aed6f5; font-size: 0.86rem; font-weight: 600; }
+  .score-pill { font-size: 0.68rem; color: #66c0f4; margin-left: auto; }
+
+  .no-deal { font-size: 0.8rem; color: #5a7a8a; }
+
+  .empty {
+    color: #8f98a0;
+    text-align: center;
+    padding: 4rem 0;
+  }
+  .empty p { margin-bottom: 0.5rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- 페이지 내 검색창 -->
+<form class="search-bar" action="{% url 'search_games' %}" method="get">
+  <input type="text" name="q" value="{{ query }}" placeholder="게임 이름으로 검색..." autofocus autocomplete="off">
+  <button type="submit">검색</button>
+</form>
+
+{% if query %}
+<div class="search-header">
+  <h1>검색 결과</h1>
+  <span class="search-meta">
+    "{{ query }}" — {{ total }}개 게임
+  </span>
+</div>
+{% endif %}
+
+{% if results %}
+  <div class="results-grid">
+    {% for item in results %}
+      {% with game=item.game best=item.best_deal %}
+      {% if game.steam_app_id %}
+        <a class="result-card" href="{% url 'game_detail' game.steam_app_id %}">
+      {% elif best %}
+        <a class="result-card" href="{{ best.deal_url }}" target="_blank" rel="noopener">
+      {% else %}
+        <a class="result-card" href="#">
+      {% endif %}
+        <div class="thumb-wrap">
+          {% if game.thumbnail_url %}
+            <img src="{{ game.thumbnail_url }}" alt="{{ game.name }}"
+                 onerror="this.src='https://via.placeholder.com/460x215/1b2838/66c0f4?text=No+Image'">
+          {% else %}
+            <img src="https://via.placeholder.com/460x215/1b2838/66c0f4?text=No+Image" alt="">
+          {% endif %}
+          <div class="platform-badges">
+            {% if item.steam_deal %}
+              <span class="platform-badge">
+                <img src="https://store.steampowered.com/favicon.ico" alt="">Steam
+              </span>
+            {% endif %}
+            {% if item.dg_deal %}
+              <span class="platform-badge">다이렉트</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="card-info">
+          <div class="card-name" title="{{ game.name }}">{{ game.name }}</div>
+          {% if game.korean_name %}
+            <div class="card-korean">{{ game.korean_name }}</div>
+          {% endif %}
+          {% if game.genres %}
+            <div class="card-genres">
+              {% for g in game.genres|slice:":2" %}
+                <span class="card-genre">{{ g }}</span>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          <div class="price-row">
+            {% if best %}
+              {% if best.discount_percent > 0 %}
+                <span class="discount-badge">-{{ best.discount_percent }}%</span>
+                {% if best.original_price %}
+                  <span class="original-price">₩{{ best.original_price|floatformat:0 }}</span>
+                {% endif %}
+              {% endif %}
+              {% if best.sale_price %}
+                <span class="sale-price">₩{{ best.sale_price|floatformat:0 }}</span>
+              {% elif best.original_price %}
+                <span class="sale-price">₩{{ best.original_price|floatformat:0 }}</span>
+              {% else %}
+                <span class="sale-price" style="color:#8f98a0;">가격 미정</span>
+              {% endif %}
+            {% else %}
+              <span class="no-deal">할인 정보 없음</span>
+            {% endif %}
+            {% if game.review_score %}
+              <span class="score-pill">⭐{% widthratio game.review_score 1 100 %}%</span>
+            {% endif %}
+          </div>
+        </div>
+      </a>
+      {% endwith %}
+    {% endfor %}
+  </div>
+
+{% elif query %}
+  <div class="empty">
+    <p>"{{ query }}"에 해당하는 게임을 찾지 못했습니다.</p>
+    <p style="font-size:0.85rem;">DB에 수집된 게임 이름 또는 한국어 이름으로 검색해보세요.</p>
+  </div>
+{% endif %}
+
+{% endblock %}

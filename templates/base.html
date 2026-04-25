@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Steam 게임 추천{% endblock %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1b2838;
+      color: #c6d4df;
+      min-height: 100vh;
+    }
+
+    nav {
+      background: #171a21;
+      padding: 0 2rem;
+      display: flex;
+      align-items: center;
+      height: 56px;
+      gap: 2rem;
+      border-bottom: 1px solid #2a475e;
+    }
+
+    nav .logo {
+      color: #66c0f4;
+      font-weight: 700;
+      font-size: 1.1rem;
+      text-decoration: none;
+    }
+
+    nav a {
+      color: #c6d4df;
+      text-decoration: none;
+      font-size: 0.9rem;
+      transition: color 0.2s;
+    }
+
+    nav a:hover { color: #66c0f4; }
+
+    nav .spacer { flex: 1; }
+
+    nav .user-info {
+      font-size: 0.85rem;
+      color: #8f98a0;
+    }
+
+    .nav-search {
+      display: flex;
+      align-items: center;
+      background: #2a475e;
+      border: 1px solid #3d6680;
+      border-radius: 4px;
+      overflow: hidden;
+      height: 32px;
+    }
+    .nav-search input {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #c6d4df;
+      font-size: 0.85rem;
+      padding: 0 0.6rem;
+      width: 200px;
+    }
+    .nav-search input::placeholder { color: #5a7a8a; }
+    .nav-search button {
+      background: #3d6680;
+      border: none;
+      color: #c6d4df;
+      cursor: pointer;
+      padding: 0 0.6rem;
+      height: 100%;
+      font-size: 0.85rem;
+      transition: background 0.2s;
+    }
+    .nav-search button:hover { background: #4c9be8; color: #fff; }
+
+    main {
+      max-width: 1100px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 0.5rem 1.2rem;
+      border-radius: 4px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.9rem;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+
+    .btn-primary {
+      background: #4c9be8;
+      color: #fff;
+    }
+
+    .btn-primary:hover { background: #66c0f4; }
+
+    .btn-secondary {
+      background: #2a475e;
+      color: #c6d4df;
+    }
+
+    .btn-secondary:hover { background: #3d6680; }
+
+    .alert {
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+      margin-bottom: 1rem;
+    }
+
+    .alert-error { background: #4e1f1f; color: #ff6b6b; border: 1px solid #7a2a2a; }
+    .alert-info  { background: #1f3a4e; color: #66c0f4; border: 1px solid #2a5a7a; }
+  </style>
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+  <nav>
+    <a class="logo" href="{% url 'library' %}">🎮 Steam 추천</a>
+    {% if request.user.is_authenticated %}
+      <a href="{% url 'library' %}">내 라이브러리</a>
+      <a href="{% url 'deals' %}">인기 게임</a>
+      <a href="{% url 'recommend' %}">추천받기</a>
+      <span class="spacer"></span>
+      <form class="nav-search" action="{% url 'search_games' %}" method="get">
+        <input type="text" name="q" placeholder="게임 검색..."
+               value="{% block search_query %}{% endblock %}"
+               autocomplete="off">
+        <button type="submit">🔍</button>
+      </form>
+      <span class="user-info">{{ request.user.steam_profile.display_name }}</span>
+      <a href="{% url 'logout' %}">로그아웃</a>
+    {% endif %}
+  </nav>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,7 @@
+django>=4.2
+python-dotenv
+requests
+beautifulsoup4
+django-crontab
+dj-database-url
+psycopg2-binary

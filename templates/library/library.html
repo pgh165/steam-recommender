@@ -1,0 +1,175 @@
+{% extends 'base.html' %}
+
+{% block title %}내 라이브러리 — Steam 추천{% endblock %}
+
+{% block extra_css %}
+<style>
+  .header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  .header-row h1 { font-size: 1.4rem; color: #e8f0f7; }
+  .header-row small { color: #8f98a0; font-size: 0.82rem; }
+
+  .section-title {
+    font-size: 1rem;
+    color: #8f98a0;
+    margin: 2rem 0 0.75rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid #2a475e;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .badge-platform {
+    font-size: 0.72rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+  .badge-steam { background: #1a4a7a; color: #66c0f4; }
+
+  .genre-group { margin-bottom: 0.5rem; }
+  .genre-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.55rem 0.9rem;
+    background: #16202d;
+    border: 1px solid #2a475e;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+  }
+  .genre-header:hover { background: #1e2d3d; }
+  .genre-header.open { border-radius: 6px 6px 0 0; border-bottom-color: #1b2838; }
+  .genre-name { font-size: 0.92rem; color: #c6d4df; flex: 1; }
+  .genre-count {
+    font-size: 0.78rem;
+    background: #2a475e;
+    color: #8f98a0;
+    padding: 0.1rem 0.5rem;
+    border-radius: 10px;
+  }
+  .genre-arrow {
+    font-size: 0.7rem;
+    color: #4a6072;
+    transition: transform 0.2s;
+  }
+  .genre-header.open .genre-arrow { transform: rotate(180deg); }
+
+  .genre-body {
+    display: none;
+    background: #111a24;
+    border: 1px solid #2a475e;
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    padding: 0.75rem;
+  }
+  .genre-body.open { display: block; }
+
+  .game-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 0.75rem;
+  }
+  .game-card {
+    background: #16202d;
+    border: 1px solid #2a475e;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .game-card img {
+    width: 100%;
+    aspect-ratio: 460/215;
+    object-fit: cover;
+    display: block;
+  }
+  .game-card .info { padding: 0.6rem; }
+  .game-card .name {
+    font-size: 0.82rem;
+    color: #c6d4df;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .game-card .playtime {
+    font-size: 0.75rem;
+    color: #8f98a0;
+    margin-top: 0.2rem;
+  }
+
+  .empty { color: #8f98a0; text-align: center; padding: 2rem 0; }
+  .alert-error { background: #3a1a1a; border: 1px solid #7a2a2a; color: #f87171; padding: 0.75rem 1rem; border-radius: 4px; margin-bottom: 1rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="header-row">
+  <div>
+    <h1>{{ steam_user.display_name }}의 라이브러리</h1>
+    {% if steam_user.profile_updated_at %}
+      <small>마지막 동기화: {{ steam_user.profile_updated_at|date:"Y.m.d H:i" }}</small>
+    {% endif %}
+  </div>
+  <form method="post" action="{% url 'sync_library' %}">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary">Steam 동기화</button>
+  </form>
+</div>
+
+{% if error %}
+  <div class="alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="section-title">
+  <span class="badge-platform badge-steam">STEAM</span>
+  {{ user_games|length }}개 · {{ steam_by_genre|length }}개 장르
+</div>
+
+{% if steam_by_genre %}
+  {% for genre, games in steam_by_genre %}
+  <div class="genre-group">
+    <div class="genre-header" onclick="toggleGenre(this)">
+      <span class="genre-name">{{ genre }}</span>
+      <span class="genre-count">{{ games|length }}개</span>
+      <span class="genre-arrow">▼</span>
+    </div>
+    <div class="genre-body">
+      <div class="game-grid">
+        {% for ug in games %}
+        <div class="game-card">
+          <img src="{{ ug.game.thumbnail_url }}" alt="{{ ug.game.name }}"
+               onerror="this.src='https://via.placeholder.com/460x215/1b2838/66c0f4?text=No+Image'">
+          <div class="info">
+            <div class="name" title="{{ ug.game.name }}">{{ ug.game.name }}</div>
+            <div class="playtime">
+              {% if ug.playtime_minutes >= 60 %}
+                약 {% widthratio ug.playtime_minutes 60 1 %}시간
+              {% else %}
+                {{ ug.playtime_minutes }}분
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="empty">Steam 동기화 버튼을 눌러 라이브러리를 불러오세요.</div>
+{% endif %}
+
+<script>
+  function toggleGenre(header) {
+    header.classList.toggle('open');
+    header.nextElementSibling.classList.toggle('open');
+  }
+</script>
+{% endblock %}

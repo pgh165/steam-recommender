@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+
+{% block title %}로그인 — Steam 추천{% endblock %}
+
+{% block extra_css %}
+<style>
+  .login-wrap {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 70vh;
+  }
+  .login-card {
+    background: #16202d;
+    border: 1px solid #2a475e;
+    border-radius: 8px;
+    padding: 2.5rem 2rem;
+    width: 100%;
+    max-width: 420px;
+  }
+  .login-card h1 {
+    color: #66c0f4;
+    font-size: 1.4rem;
+    margin-bottom: 0.5rem;
+  }
+  .login-card p {
+    color: #8f98a0;
+    font-size: 0.88rem;
+    margin-bottom: 1.5rem;
+  }
+  input[type="text"] {
+    width: 100%;
+    padding: 0.65rem 0.9rem;
+    background: #0f1923;
+    border: 1px solid #2a475e;
+    border-radius: 4px;
+    color: #c6d4df;
+    font-size: 0.95rem;
+    margin-bottom: 1rem;
+  }
+  input[type="text"]::placeholder { color: #4a6072; }
+  input[type="text"]:focus { outline: none; border-color: #66c0f4; }
+  .submit-btn {
+    width: 100%;
+    padding: 0.7rem;
+    background: #4c9be8;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .submit-btn:hover { background: #66c0f4; }
+  .hint {
+    margin-top: 1rem;
+    font-size: 0.8rem;
+    color: #5a7a8a;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="login-wrap">
+  <div class="login-card">
+    <h1>Steam ID로 시작하기</h1>
+    <p>Steam ID(17자리 숫자) 또는 프로필 URL을 입력하세요.</p>
+
+    {% if error %}
+      <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+      <input type="text" name="steam_id"
+             placeholder="76561198xxxxxxxxx 또는 steamcommunity.com/id/..."
+             autofocus>
+      <button type="submit" class="submit-btn">라이브러리 불러오기</button>
+    </form>
+
+    <p class="hint">
+      Steam ID 확인: <a href="https://steamcommunity.com/profiles/" target="_blank" style="color:#4c9be8">프로필 URL의 숫자</a>
+      또는 <a href="https://www.steamidfinder.com/" target="_blank" style="color:#4c9be8">SteamID Finder</a>
+    </p>
+  </div>
+</div>
+{% endblock %}
