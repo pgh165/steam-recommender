@@ -416,17 +416,22 @@ const PAGE_URL = '{% url "recommend" %}';
 
 async function runRecommend() {
   const msgEl = document.getElementById('loadingMsg');
+  const msgs = ['AI가 취향을 분석 중입니다...', '할인 게임을 검토하고 있습니다...', '추천 목록을 정리하고 있습니다...'];
+  let i = 0;
+  const ticker = setInterval(() => { msgEl.textContent = msgs[++i % msgs.length]; }, 5000);
+
   try {
     const res = await fetch(RUN_URL, { credentials: 'same-origin' });
     const data = await res.json();
+    clearInterval(ticker);
     if (data.error) {
       msgEl.textContent = '오류: ' + data.error;
       msgEl.style.color = '#ff6b6b';
       return;
     }
-    // 완료되면 결과 페이지로 이동
     window.location.href = PAGE_URL;
   } catch (e) {
+    clearInterval(ticker);
     msgEl.textContent = '서버 연결 실패. 페이지를 새로고침 해주세요.';
     msgEl.style.color = '#ff6b6b';
   }

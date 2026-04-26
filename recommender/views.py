@@ -83,6 +83,86 @@ def recommend(request):
     return render(request, 'recommender/recommend.html', {'loading': True})
 
 
+def _build_deals_data(steam_user):
+    """유저 분석 결과 + 점수화로 선별된 후보 딜(최대 10개) 반환.
+
+    반환: (user_games_data, deals_data, profile)
+    """
+    from django.db.models import Q
+    from .analyzer import analyze_user, score_deal
+
+    owned_app_ids = set(
+        steam_user.user_games.filter(source='steam')
+        .exclude(game__steam_app_id=None)
+        .values_list('game__steam_app_id', flat=True)
+    )
+
+    # 분석용으로는 상위 20개를 보고, LLM에는 상위 10개만 전달
+    top_for_analysis = list(
+        UserGame.objects
+        .filter(user=steam_user)
+        .select_related('game')
+        .order_by('-playtime_minutes')[:20]
+    )
+    user_games_full = [
+        {
+            'name': ug.game.name,
+            'playtime_minutes': ug.playtime_minutes,
+            'genres': ug.game.genres or [],
+            'tags': ug.game.tags or [],
+        }
+        for ug in top_for_analysis
+    ]
+    profile = analyze_user(user_games_full)
+    user_games_data = user_games_full[:10]
+
+    # 보유 장르 집합 (점수화에 사용)
+    owned_genres = set()
+    for g in user_games_full:
+        owned_genres.update(g['genres'])
+
+    # 후보 풀: 상위 장르 1개라도 겹치는 것 우선, 부족하면 평점순 fallback
+    base_qs = (
+        Deal.objects
+        .filter(category='popular', platform='steam')
+        .exclude(game__steam_app_id__in=owned_app_ids)
+        .select_related('game')
+    )
+    candidates = []
+    if profile and profile['top_genres']:
+        genre_filter = Q()
+        for g in profile['top_genres']:
+            genre_filter |= Q(game__genres__contains=[g])
+        candidates = list(base_qs.filter(genre_filter).order_by('-game__review_score')[:40])
+    if len(candidates) < 30:
+        existing = {d.id for d in candidates}
+        candidates += list(
+            base_qs.exclude(id__in=existing).order_by('-game__review_score')[:30 - len(candidates)]
+        )
+
+    # 후보를 dict로 변환 후 점수화
+    candidate_dicts = [
+        {
+            'name': d.game.name,
+            'sale_price': float(d.sale_price) if d.sale_price else None,
+            'discount_percent': d.discount_percent,
+            'genres': d.game.genres or [],
+            'tags': d.game.tags or [],
+            'deal_url': d.deal_url,
+            'review_score': d.game.review_score,
+        }
+        for d in candidates
+    ]
+    if profile:
+        candidate_dicts.sort(
+            key=lambda d: score_deal(d, profile, owned_genres),
+            reverse=True,
+        )
+    deals_data = candidate_dicts[:10]
+
+    return user_games_data, deals_data, profile
+
+
 @login_required(login_url='login')
 def recommend_run(request):
     """JS에서 fetch()로 호출 — Ollama 추천 실행 후 JSON 반환."""
@@ -91,90 +171,29 @@ def recommend_run(request):
     cache_key = f'recommendation_{steam_user.steam_id}_{today}'
     chat_key  = f'chat_history_{steam_user.steam_id}'
 
-    # 혹시 이미 완료된 경우
     cached = request.session.get(cache_key)
     if cached:
         cards = request.session.get(cache_key + '_cards', [])
         return JsonResponse({'result': cached, 'cards': cards})
 
-    owned_app_ids = set(
-        steam_user.user_games.filter(source='steam')
-        .exclude(game__steam_app_id=None)
-        .values_list('game__steam_app_id', flat=True)
-    )
-
-    top_games = (
-        UserGame.objects
-        .filter(user=steam_user)
-        .select_related('game')
-        .order_by('-playtime_minutes')[:10]
-    )
-    user_games_data = [
-        {
-            'name': ug.game.name,
-            'playtime_minutes': ug.playtime_minutes,
-            'genres': ug.game.genres,
-        }
-        for ug in top_games
-    ]
-
-    # 플레이타임 가중치로 상위 장르 추출
-    genre_weights = {}
-    for ug in top_games:
-        for g in (ug.game.genres or []):
-            genre_weights[g] = genre_weights.get(g, 0) + ug.playtime_minutes
-    top_genres = sorted(genre_weights, key=lambda g: -genre_weights[g])[:5]
-
-    # 상위 장르와 겹치는 게임 우선, 없으면 평점순 fallback
-    from django.db.models import Q
-    base_deals_qs = (
-        Deal.objects
-        .filter(category='popular', platform='steam')
-        .exclude(game__steam_app_id__in=owned_app_ids)
-        .select_related('game')
-    )
-    if top_genres:
-        genre_filter = Q()
-        for g in top_genres:
-            genre_filter |= Q(game__genres__contains=[g])
-        genre_matched = list(
-            base_deals_qs.filter(genre_filter).order_by('-game__review_score')[:20]
-        )
-    else:
-        genre_matched = []
-
-    if len(genre_matched) < 20:
-        extra_ids = {d.id for d in genre_matched}
-        fallback = list(
-            base_deals_qs.exclude(id__in=extra_ids).order_by('-game__review_score')[:20 - len(genre_matched)]
-        )
-        deals = genre_matched + fallback
-    else:
-        deals = genre_matched
-    deals_data = [
-        {
-            'name': d.game.name,
-            'sale_price': float(d.sale_price) if d.sale_price else None,
-            'discount_percent': d.discount_percent,
-            'genres': d.game.genres or [],
-            'deal_url': d.deal_url,
-            'review_score': d.game.review_score,
-        }
-        for d in deals
-    ]
+    user_games_data, deals_data, profile = _build_deals_data(steam_user)
 
     try:
-        result = get_recommendation(user_games_data, deals_data)
+        result = get_recommendation(user_games_data, deals_data, profile)
     except Exception as e:
         return JsonResponse({'error': f'추천 서버 오류: {e}'}, status=503)
 
     cards = _parse_recommended_games(result)
-    system_context = _build_system_context(user_games_data, deals_data)
-
+    top_game_names = ', '.join(g['name'] for g in user_games_data[:5])
+    chat_system = (
+        f"당신은 Steam 게임 추천 전문가입니다. "
+        f"사용자는 주로 {top_game_names} 등을 즐깁니다. "
+        f"아래는 당신이 방금 제공한 추천 결과입니다."
+    )
     request.session[cache_key] = result
     request.session[cache_key + '_cards'] = cards
     request.session[chat_key] = [
-        {'role': 'user', 'content': system_context},
+        {'role': 'user', 'content': chat_system},
         {'role': 'assistant', 'content': result},
     ]
     request.session.modified = True
@@ -207,9 +226,9 @@ def chat(request):
 
     history.append({'role': 'assistant', 'content': reply})
 
-    # 히스토리가 너무 길어지지 않도록 앞쪽 시스템 컨텍스트(2개)는 유지하고 최근 20턴만 보존
-    if len(history) > 22:
-        history = history[:2] + history[-20:]
+    # 앞쪽 시스템 컨텍스트(2개) 유지 + 최근 8턴(user+assistant 4쌍)만 보존
+    if len(history) > 10:
+        history = history[:2] + history[-8:]
 
     request.session[chat_key] = history
     request.session.modified = True
